@@ -145,7 +145,16 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
         buildingPicturesList = new ArrayList<>();
 
+        /*
+            LOOP THROUGH ALL THE PICTURES
+            APPLY COLOR CORRECTION AND FILTERS TO EACH PICTURE
+            GET KEYPOINTS AND DECRYPTORS OF EVERY PICTURE
+            ADD PICTURE TO LIST
+        */
         for(int i = 1; i <= 4; i++){
+
+            // buildingPicture IS THE PICTURE THAT IS BEING USED
+            // FROM THE CLASS BuildingPicture
 
             InputStream istr = assetManager.open(i + ".jpeg");
             Bitmap bitmap = BitmapFactory.decodeStream(istr);
@@ -175,10 +184,12 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
             Utils.bitmapToMat(ret, buildingPicture.getImage());
 
+            // CHANGE TO BLACK AND WHITE
             Imgproc.cvtColor(buildingPicture.getImage(), buildingPicture.getImage(), Imgproc.COLOR_RGB2GRAY);
             buildingPicture.getImage().convertTo(buildingPicture.getImage(), 0); //converting the image to match with the type of the cameras image
 
             buildingPicture.setDescriptors(new Mat());
+            // GET KEYPOINTS FROM PICTURE
             buildingPicture.setKeypoint(new MatOfKeyPoint());
             buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
             buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
@@ -228,6 +239,12 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
     public Mat recognize(Mat aInputFrame) {
 
+        /*
+            LOOP AGAIN THROUGH ALL PICTURES
+            GET KEYPOINTS FROM CURRENT CAMERA FRAME
+            CHECK WHICH PICTURE HAS THE MOST POINTS IN COMMON
+            USE THAT AS chosenPicture
+         */
         for(int j = 0; j < buildingPicturesList.size(); j++) {
 
             BuildingPicture currentPicture = buildingPicturesList.get(j);
@@ -294,10 +311,14 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
             }
         }
 
+        // ON THE FIRST FRAME
+        // THE FIRST PICTURE ON THE LIST IS THE DEFAULT
+        // THIS IS RUN ONLY ONE TIME
         if(firstFrame) {
              chosenPicture = buildingPicturesList.get(0);
         }
 
+        // THIS VERIFIES THE NUMBER OF GOOD MATCHES ON EACH PICTURE
         for(int i = 0; i < buildingPicturesList.size(); i++){
             if(chosenPicture.getGood_matches().size() < buildingPicturesList.get(i).getGood_matches().size()){
                 chosenPicture = buildingPicturesList.get(i);
