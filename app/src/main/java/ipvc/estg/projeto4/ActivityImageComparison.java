@@ -11,6 +11,7 @@ import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.os.Bundle;
+import android.os.Handler;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
@@ -42,8 +43,13 @@ import org.w3c.dom.Text;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
+
+import ipvc.estg.projeto4.Classes.BuildingPicture;
 
 
 public class ActivityImageComparison extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
@@ -53,6 +59,10 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
     private int w, h;
     private CameraBridgeViewBase mOpenCvCameraView;
 
+    ArrayList<BuildingPicture> buildingPicturesList;
+    BuildingPicture chosenPicture;
+
+    Boolean cameraActive;
 
     TextView tvName;
     TextView txvNumberOfMatches;
@@ -60,12 +70,17 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
     Scalar RED = new Scalar(255, 0, 0);
     Scalar GREEN = new Scalar(0, 255, 0);
+
     FeatureDetector detector;
     DescriptorExtractor descriptor;
     DescriptorMatcher matcher;
     Mat descriptors2,descriptors1;
+
     Mat img1;
+
     MatOfKeyPoint keypoints1,keypoints2;
+
+    Boolean firstFrame;
 
     static {
         if (!OpenCVLoader.initDebug())
@@ -94,6 +109,8 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
         tvName = (TextView) findViewById(R.id.text1);
         txvNumberOfMatches = (TextView) findViewById(R.id.txv_numberofmatches);
 
+        firstFrame = true;
+        chosenPicture = null;
     }
 
 
@@ -122,39 +139,52 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
     private void initializeOpenCVDependencies() throws IOException {
         mOpenCvCameraView.enableView();
-        detector = FeatureDetector.create(FeatureDetector.ORB);
-        descriptor = DescriptorExtractor.create(DescriptorExtractor.ORB);
-        matcher = DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING);
+        cameraActive = true;
 
-        img1 = new Mat();
         AssetManager assetManager = getAssets();
-        InputStream istr = assetManager.open("a.jpeg");
-        Bitmap bitmap = BitmapFactory.decodeStream(istr);
 
-        ColorMatrix colorMatrix = new ColorMatrix(new float[]
-                {
-                        1, 0, 0, 0, 0,
-                        0, 1, 0, 0, 0,
-                        0, 0, 1, 0, 0,
-                        0, 0, 1, 0, 0
-                });
+        buildingPicturesList = new ArrayList<>();
 
-        Bitmap ret = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
-        Canvas canvas = new Canvas(ret);
+        for(int i = 1; i <= 4; i++){
 
-        Paint paint = new Paint();
-        paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
-        canvas.drawBitmap(bitmap, 0, 0, paint);
+            InputStream istr = assetManager.open(i + ".jpeg");
+            Bitmap bitmap = BitmapFactory.decodeStream(istr);
 
-        Utils.bitmapToMat(ret, img1);
+            BuildingPicture buildingPicture = new BuildingPicture(bitmap);
 
-        Imgproc.cvtColor(img1, img1, Imgproc.COLOR_RGB2GRAY);
-        img1.convertTo(img1, 0); //converting the image to match with the type of the cameras image
+            buildingPicture.setDetector(FeatureDetector.create(FeatureDetector.ORB));
+            buildingPicture.setDescriptor(DescriptorExtractor.create(DescriptorExtractor.ORB));
+            buildingPicture.setMatcher(DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING));
 
-        descriptors1 = new Mat();
-        keypoints1 = new MatOfKeyPoint();
-        detector.detect(img1, keypoints1);
-        descriptor.compute(img1, keypoints1, descriptors1);
+            buildingPicture.setImage(new Mat());
+
+            ColorMatrix colorMatrix = new ColorMatrix(new float[]
+                    {
+                            0, 0, 0, 1, 0,
+                            1, 0, 0, 0, 1,
+                            0, 0, 0, 0, 1,
+                            0, 0, 1, 0, 0
+                    });
+
+            Bitmap ret = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
+            Canvas canvas = new Canvas(ret);
+
+            Paint paint = new Paint();
+            paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
+            canvas.drawBitmap(buildingPicture.getBitmap(), 0, 0, paint);
+
+            Utils.bitmapToMat(ret, buildingPicture.getImage());
+
+            Imgproc.cvtColor(buildingPicture.getImage(), buildingPicture.getImage(), Imgproc.COLOR_RGB2GRAY);
+            buildingPicture.getImage().convertTo(buildingPicture.getImage(), 0); //converting the image to match with the type of the cameras image
+
+            buildingPicture.setDescriptors(new Mat());
+            buildingPicture.setKeypoint(new MatOfKeyPoint());
+            buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
+            buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
+
+            buildingPicturesList.add(buildingPicture);
+        }
     }
 
 
@@ -198,71 +228,97 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
     public Mat recognize(Mat aInputFrame) {
 
-        Imgproc.cvtColor(aInputFrame, aInputFrame, Imgproc.COLOR_RGB2GRAY);
-        descriptors2 = new Mat();
-        keypoints2 = new MatOfKeyPoint();
-        detector.detect(aInputFrame, keypoints2);
-        descriptor.compute(aInputFrame, keypoints2, descriptors2);
+        for(int j = 0; j < buildingPicturesList.size(); j++) {
 
-        // Matching
-        MatOfDMatch matches = new MatOfDMatch();
-        if (img1.type() == aInputFrame.type()) {
-            try{
-                matcher.match(descriptors1, descriptors2, matches);
-            } catch(Exception e){
-                Log.d("TAG", "[NO DETECTABLE FRAMES]\n");
+            BuildingPicture currentPicture = buildingPicturesList.get(j);
+
+            try {
+                Imgproc.cvtColor(aInputFrame, aInputFrame, Imgproc.COLOR_RGB2GRAY);
+            } catch (Exception e){
+                Log.i("TAG", "ERRO " + e.getMessage());
             }
-        } else {
-            return aInputFrame;
-        }
-        List<DMatch> matchesList = matches.toList();
+            descriptors2 = new Mat();
+            keypoints2 = new MatOfKeyPoint();
+            currentPicture.getDetector().detect(aInputFrame, keypoints2);
+            currentPicture.getDescriptor().compute(aInputFrame, keypoints2, descriptors2);
 
-        Double max_dist = 0.0;
-        Double min_dist = 20.0;
-
-        for (int i = 0; i < matchesList.size(); i++) {
-            Double dist = (double) matchesList.get(i).distance;
-            if (dist < min_dist)
-                min_dist = dist;
-            if (dist > max_dist)
-                max_dist = dist;
-        }
-
-        // THIS IS THE NUMBER OF POINTS IN COMMON DETECTED
-        final LinkedList<DMatch> good_matches = new LinkedList<DMatch>();
-
-        for (int i = 0; i < matchesList.size(); i++) {
-            if (matchesList.get(i).distance <= (1.5 * min_dist))
-                good_matches.addLast(matchesList.get(i));
-        }
-
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                // UPDATE TEXT TO SHOW POINTS IN COMMON
-                txvNumberOfMatches.setText(good_matches.size() + " pts");
+            // Matching
+            MatOfDMatch matches = new MatOfDMatch();
+            if (currentPicture.getImage().type() == aInputFrame.type()) {
+                try {
+                    currentPicture.getMatcher().match(currentPicture.getDescriptors(), descriptors2, matches);
+                } catch (Exception e) {
+                    Log.d("TAG", "[NO DETECTABLE FRAMES]\n");
+                }
+            } else {
+                return aInputFrame;
             }
-        });
+            List<DMatch> matchesList = matches.toList();
+
+            Double max_dist = 0.0;
+            Double min_dist = 20.0;
+
+            for (int i = 0; i < matchesList.size(); i++) {
+                Double dist = (double) matchesList.get(i).distance;
+                if (dist < min_dist)
+                    min_dist = dist;
+                if (dist > max_dist)
+                    max_dist = dist;
+            }
+
+            // THIS IS THE NUMBER OF POINTS IN COMMON DETECTED
+            final LinkedList<DMatch> good_matches = new LinkedList<DMatch>();
+
+            for (int i = 0; i < matchesList.size(); i++) {
+                if (matchesList.get(i).distance <= (1.5 * min_dist))
+                    good_matches.addLast(matchesList.get(i));
+            }
+
+            currentPicture.setGood_matches(good_matches);
+
+            if (good_matches.size() > 6) {
+                // DISABLE CAMERA IF IT HAS ENOUGH MATCHES
+                // Log.d("TAG", "CAMERA STOPPED");
+
+                // CHANGE TEXT TO SHOW NUMBER OF MATCHES
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        // UPDATE TEXT TO SHOW POINTS IN COMMON
+                        txvNumberOfMatches.setText(good_matches.size() + " pts");
+                    }
+                });
+
+                // DISABLE CAMERA
+                cameraActive = false;
+            }
+        }
+
+        if(firstFrame) {
+             chosenPicture = buildingPicturesList.get(0);
+        }
+
+        for(int i = 0; i < buildingPicturesList.size(); i++){
+            if(chosenPicture.getGood_matches().size() < buildingPicturesList.get(i).getGood_matches().size()){
+                chosenPicture = buildingPicturesList.get(i);
+            }
+        }
 
         MatOfDMatch goodMatches = new MatOfDMatch();
-        goodMatches.fromList(good_matches);
+        goodMatches.fromList(chosenPicture.getGood_matches());
         Mat outputImg = new Mat();
         MatOfByte drawnMatches = new MatOfByte();
         if (aInputFrame.empty() || aInputFrame.cols() < 1 || aInputFrame.rows() < 1) {
             return aInputFrame;
         }
 
-        Imgproc.Canny(outputImg, outputImg, 70, 100);
+        //Imgproc.Canny(outputImg, outputImg, 70, 100);
 
-        Features2d.drawMatches(img1, keypoints1, aInputFrame, keypoints2, goodMatches, outputImg, RED, GREEN, drawnMatches, Features2d.NOT_DRAW_SINGLE_POINTS);
+        Features2d.drawMatches(chosenPicture.getImage(), chosenPicture.getKeypoint(), aInputFrame, keypoints2, goodMatches, outputImg, RED, GREEN, drawnMatches, Features2d.NOT_DRAW_SINGLE_POINTS);
         Imgproc.resize(outputImg, outputImg, aInputFrame.size());
 
-        //ROTATE THE CANVAS
-        /*
-        Mat outPutImgT = outputImg.t();
-        Core.flip(outputImg.t(), outPutImgT, 1);
-        Imgproc.resize(outPutImgT, outPutImgT, outputImg.size());
-        */
+        firstFrame = false;
+
         return outputImg;
     }
 
