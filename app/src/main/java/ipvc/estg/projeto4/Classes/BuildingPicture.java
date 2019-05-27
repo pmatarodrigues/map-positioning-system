@@ -2,6 +2,8 @@ package ipvc.estg.projeto4.Classes;
 
 import android.graphics.Bitmap;
 
+import com.google.android.gms.maps.model.LatLng;
+
 import org.opencv.core.DMatch;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfKeyPoint;
@@ -24,6 +26,8 @@ public class BuildingPicture {
     DescriptorMatcher matcher;
 
     LinkedList<DMatch> good_matches = new LinkedList<DMatch>();
+
+    LatLng latLng;
 
     public BuildingPicture(Bitmap bitmap) {
         this.bitmap = bitmap;
@@ -99,5 +103,13 @@ public class BuildingPicture {
 
     public void setGood_matches(LinkedList<DMatch> good_matches) {
         this.good_matches = good_matches;
+    }
+
+    public LatLng getLatLng() {
+        return latLng;
+    }
+
+    public void setLatLng(LatLng latLng) {
+        this.latLng = latLng;
     }
 }

@@ -2,6 +2,8 @@ package ipvc.estg.projeto4;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
@@ -10,16 +12,40 @@ import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
+import android.location.Criteria;
+import android.location.Location;
+import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.ResultReceiver;
+import android.provider.Settings;
+import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.SurfaceView;
+import android.view.View;
 import android.view.WindowManager;
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapFragment;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
 
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
@@ -44,6 +70,7 @@ import org.w3c.dom.Text;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Timer;
@@ -52,16 +79,18 @@ import java.util.TimerTask;
 import ipvc.estg.projeto4.Classes.BuildingPicture;
 
 
-public class ActivityImageComparison extends Activity implements CameraBridgeViewBase.CvCameraViewListener2 {
+public class ActivityImageComparison extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2, OnMapReadyCallback, LocationListener, GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks {
 
     private static final String TAG = "OCVSample::Activity";
     private static final int REQUEST_PERMISSION = 100;
     private int w, h;
+    //================================================================================
+    // Image recognition variables
+    //================================================================================
     private CameraBridgeViewBase mOpenCvCameraView;
 
     ArrayList<BuildingPicture> buildingPicturesList;
     BuildingPicture chosenPicture;
-
     Boolean cameraActive;
 
     TextView tvName;
@@ -75,13 +104,28 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
     DescriptorExtractor descriptor;
     DescriptorMatcher matcher;
     Mat descriptors2,descriptors1;
-
     Mat img1;
-
     MatOfKeyPoint keypoints1,keypoints2;
-
     Boolean firstFrame;
 
+
+    //================================================================================
+    // Maps variables
+    //================================================================================
+    GoogleMap gMap;
+    private GoogleApiClient mGoogleAPIClient;
+    LocationRequest mLocationRequest;
+    LocationManager locationManager;
+    private ActivityImageComparison.AddressResultReceiver mResultReceiver;
+    Location location;
+    Button btnChangeToImageTests;
+    LinkedHashMap<Location, Boolean> checkedCoords;
+
+
+
+    //================================================================================
+    // FUNCTIONS
+    //================================================================================
     static {
         if (!OpenCVLoader.initDebug())
             Log.d("ERROR", "Unable to load OpenCV");
@@ -90,11 +134,19 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
     }
 
 
+    //================================================================================
+    // GENERAL functions
+    //================================================================================
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
 
         Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
+
+        //================================================================================
+        // Image recognition declarations
+        //================================================================================
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_image_comparison);
 
@@ -111,8 +163,47 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
 
         firstFrame = true;
         chosenPicture = null;
+
+
+
+
+        //================================================================================
+        // Map declarations
+        //================================================================================
+
+        checkedCoords = new LinkedHashMap<>();
+
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.mapa);
+        mapFragment.getMapAsync(this);
+
+
+        mResultReceiver = new AddressResultReceiver(null);
+        mLocationRequest = new LocationRequest();
+        buildGoogleApiClient();
     }
 
+    public void addMarker(final BuildingPicture chosenPicture){
+        Handler mHandler = new Handler(getMainLooper());
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                MarkerOptions markerOptions = new MarkerOptions();
+                markerOptions.position(chosenPicture.getLatLng());
+                markerOptions.title("Local atual");
+                gMap.clear();
+                gMap.animateCamera(CameraUpdateFactory.newLatLng(chosenPicture.getLatLng()));
+                gMap.addMarker(markerOptions);
+            }
+        });
+
+    }
+
+
+
+    //================================================================================
+    // Image recognition functions
+    //================================================================================
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -151,15 +242,17 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
             GET KEYPOINTS AND DECRYPTORS OF EVERY PICTURE
             ADD PICTURE TO LIST
         */
-        for(int i = 1; i <= 4; i++){
+        for(int i = 9; i <= 12; i++){
 
             // buildingPicture IS THE PICTURE THAT IS BEING USED
             // FROM THE CLASS BuildingPicture
 
-            InputStream istr = assetManager.open(i + ".jpeg");
+            InputStream istr = assetManager.open(i + ".png");
             Bitmap bitmap = BitmapFactory.decodeStream(istr);
 
             BuildingPicture buildingPicture = new BuildingPicture(bitmap);
+
+            buildingPicture.setFilename(i + ".png");
 
             buildingPicture.setDetector(FeatureDetector.create(FeatureDetector.ORB));
             buildingPicture.setDescriptor(DescriptorExtractor.create(DescriptorExtractor.ORB));
@@ -194,6 +287,23 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
             buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
             buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
 
+            if(buildingPicture.getFilename().equals("9.png")){
+                buildingPicture.setLatLng(new LatLng(41.6970909,-8.8402198));
+            }
+
+            if(buildingPicture.getFilename().equals("10.png")){
+                buildingPicture.setLatLng(new LatLng(41.6967705,-8.8394581));
+            }
+            if(buildingPicture.getFilename().equals("11.png")){
+                buildingPicture.setLatLng(new LatLng(41.6967785,-8.8404076));
+            }
+            if(buildingPicture.getFilename().equals("12.png")){
+                buildingPicture.setLatLng(new LatLng(41.6973152,-8.8394366));
+            }
+
+            Log.d(TAG, "initializeOpenCVDependencies:" + buildingPicture.getLatLng());
+
+
             buildingPicturesList.add(buildingPicture);
         }
     }
@@ -209,6 +319,8 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
         super.onPause();
         if (mOpenCvCameraView != null)
             mOpenCvCameraView.disableView();
+
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleAPIClient, this);
     }
 
     @Override
@@ -322,6 +434,8 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
         for(int i = 0; i < buildingPicturesList.size(); i++){
             if(chosenPicture.getGood_matches().size() < buildingPicturesList.get(i).getGood_matches().size()){
                 chosenPicture = buildingPicturesList.get(i);
+                Log.d(TAG, "recognize: " + "MUDOU DE FOTO " + chosenPicture);
+                addMarker(chosenPicture);
             }
         }
 
@@ -347,4 +461,201 @@ public class ActivityImageComparison extends Activity implements CameraBridgeVie
         return recognize(inputFrame.rgba());
 
     }
+
+
+
+
+
+
+
+    //================================================================================
+    // MAPS functions
+    //================================================================================
+
+
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        gMap = googleMap;
+
+        gMap.setMapType(GoogleMap.MAP_TYPE_HYBRID);
+
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        Criteria criteria = new Criteria();
+
+
+        // CHECK USER PERMISSIONS FOR ACCESSING LOCATION
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        if (isLocationEnabled(ActivityImageComparison.this) && location != null) {
+            // GETS USER KNOWN LOCATION
+            location = locationManager.getLastKnownLocation(locationManager.getBestProvider(criteria, false));
+            //location = getLastKnownLocation();
+
+            LatLng latLng = new LatLng(location.getLatitude(), location.getLongitude());
+            focusMapa(latLng);
+        }
+        startIntentService(location);
+
+    }
+
+    private Boolean isLocationEnabled(Context context) {
+        int locationMode = 0;
+        String locationProviders;
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT)
+        {
+            try
+            {
+                locationMode = Settings.Secure.getInt(context.getContentResolver(), Settings.Secure.LOCATION_MODE);
+            } catch (Settings.SettingNotFoundException e) {
+                e.printStackTrace();
+            }
+            return locationMode != Settings.Secure.LOCATION_MODE_OFF;
+        }
+        else
+        {
+            locationProviders = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.LOCATION_PROVIDERS_ALLOWED);
+            return !TextUtils.isEmpty(locationProviders);
+        }
+    }
+
+    private Location getLastKnownLocation() {
+        Location l=null;
+        LocationManager mLocationManager = (LocationManager)getApplicationContext().getSystemService(LOCATION_SERVICE);
+        List<String> providers = mLocationManager.getProviders(true);
+        Location bestLocation = null;
+        for (String provider : providers) {
+            if(ContextCompat.checkSelfPermission(this,Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED) {
+                l = mLocationManager.getLastKnownLocation(provider);
+            }
+            if (l == null) {
+                continue;
+            }
+            if (bestLocation == null || l.getAccuracy() < bestLocation.getAccuracy()) {
+                bestLocation = l;
+            }
+        }
+        return bestLocation;
+    }
+
+    public void createLocationRequest(){
+        mLocationRequest.setInterval(1000);
+        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+    }
+
+    protected synchronized void buildGoogleApiClient(){
+        mGoogleAPIClient = new GoogleApiClient.Builder(this)
+                .addConnectionCallbacks(this)
+                .addOnConnectionFailedListener(this)
+                .addApi(LocationServices.API).build();
+        createLocationRequest();
+    }
+
+    @Override
+    protected void onStart(){
+        super.onStart();
+        mGoogleAPIClient.connect();
+    }
+    @Override
+    public void onConnected(Bundle connectionHint){
+        startLocationUpdates();
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+
+    }
+
+    protected void startLocationUpdates(){
+        if(ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED){
+            ActivityCompat.requestPermissions(this, new String[]{
+                    Manifest.permission.ACCESS_FINE_LOCATION
+            }, 0);
+        } else{
+            LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleAPIClient, mLocationRequest, this);
+            gMap.setMyLocationEnabled(true);
+        }
+    }
+
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults){
+        if(requestCode == 0){
+            if(grantResults.length == 1 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                if(requestCode == 0){
+                    startLocationUpdates();
+                }
+            } else{
+
+            }
+        }
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+    }
+
+    @Override
+    public void onConnectionFailed(@NonNull ConnectionResult connectionResult) {
+
+    }
+
+    // CLASS ADDRESSRESULTRECEIVER
+    class AddressResultReceiver extends ResultReceiver {
+        public AddressResultReceiver(Handler handler){
+            super(handler);
+        }
+
+        @Override
+        protected void onReceiveResult(int resultCode, Bundle resultData){
+            if(resultData.containsKey(Constants.RESULT_DATA_KEY)){
+                final String mAddressOutput = resultData.getString(Constants.RESULT_DATA_KEY);
+
+                // RESOLVE O ERRO DE "TRYING TO SEND MESSAGE TO A HANDLER ON A DEAD THREAD"
+                // PORQUE O HANDLER TENTA EXECUTAR O TOAST DENTRO DO HANDLER onHandleIntent QUE FICA DEPOIS DESTRUÍDO
+                Handler mHandler = new Handler(getMainLooper());
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        //Toast.makeText(MapsActivity.this, mAddressOutput, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            if(resultData.containsKey(Constants.LONGITUDE)){
+
+                final LatLng latLng = new LatLng(
+                        resultData.getDouble(Constants.LATITUDE),
+                        resultData.getDouble(Constants.LONGITUDE)
+                );
+
+
+                focusMapa(latLng);
+            }
+        }
+    }
+
+    public void focusMapa(LatLng latlng){
+        final CameraPosition cameraPosition = new CameraPosition.Builder()
+                .target(latlng)
+                .tilt(50)
+                .zoom(19)
+                .build();
+        Handler mHandler = new Handler(getMainLooper());
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                gMap.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition));
+            }
+        });
+    }
+
+    protected void startIntentService(Location location){
+        Intent intent = new Intent(this, FetchAddressIntentService.class);
+        intent.putExtra(Constants.RECEIVER, mResultReceiver);
+        intent.putExtra(Constants.LOCATION_DATA_EXTRA, location);
+        startService(intent);
+    }
+
 }
