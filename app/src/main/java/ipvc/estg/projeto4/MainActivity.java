@@ -1,14 +1,22 @@
 package ipvc.estg.projeto4;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.location.Address;
+import android.content.res.AssetManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Paint;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.ResultReceiver;
 import android.provider.Settings;
@@ -16,86 +24,457 @@ import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.SurfaceView;
 import android.view.View;
-import android.widget.ArrayAdapter;
+import android.view.WindowManager;
 import android.widget.Button;
-import android.widget.ListView;
-import android.widget.Toast;
+import android.widget.ImageView;
+import android.widget.TextView;
 
-import com.android.volley.AuthFailureError;
-import com.android.volley.Request;
-import com.android.volley.Response;
-import com.android.volley.VolleyError;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.*;
-import com.google.android.gms.maps.model.*;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapFragment;
+import com.google.android.gms.maps.OnMapReadyCallback;
+import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.MarkerOptions;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.CameraBridgeViewBase.CvCameraViewFrame;
+import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Core;
+import org.opencv.core.DMatch;
+import org.opencv.core.Mat;
+import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfDMatch;
+import org.opencv.core.MatOfKeyPoint;
+import org.opencv.core.Scalar;
+import org.opencv.features2d.DescriptorExtractor;
+import org.opencv.features2d.DescriptorMatcher;
+import org.opencv.features2d.FeatureDetector;
+import org.opencv.features2d.Features2d;
+import org.opencv.imgproc.Imgproc;
+import org.w3c.dom.Text;
 
-import java.io.DataOutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
 
-public class MainActivity extends AppCompatActivity implements OnMapReadyCallback, LocationListener, GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks{
+import ipvc.estg.projeto4.Classes.BuildingPicture;
 
-    private static final String TAG = "MainActivity";
+
+public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2, OnMapReadyCallback, LocationListener, GoogleApiClient.OnConnectionFailedListener, GoogleApiClient.ConnectionCallbacks {
+
+    private static final String TAG = "OCVSample::Activity";
+    private static final int REQUEST_PERMISSION = 100;
+    private int w, h;
+    //================================================================================
+    // Image recognition variables
+    //================================================================================
+    private CameraBridgeViewBase mOpenCvCameraView;
+
+    ArrayList<BuildingPicture> buildingPicturesList;
+    BuildingPicture chosenPicture;
+    Boolean cameraActive;
+
+    TextView tvName;
+    TextView txvNumberOfMatches;
+    ImageView imgBitmaptests;
+
+    Scalar RED = new Scalar(255, 0, 0);
+    Scalar GREEN = new Scalar(0, 255, 0);
+
+    FeatureDetector detector;
+    DescriptorExtractor descriptor;
+    DescriptorMatcher matcher;
+    Mat descriptors2,descriptors1;
+    Mat img1;
+    MatOfKeyPoint keypoints1,keypoints2;
+    Boolean firstFrame;
+
+
+    //================================================================================
+    // Maps variables
+    //================================================================================
     GoogleMap gMap;
     private GoogleApiClient mGoogleAPIClient;
     LocationRequest mLocationRequest;
     LocationManager locationManager;
-    private AddressResultReceiver mResultReceiver;
+    private MainActivity.AddressResultReceiver mResultReceiver;
     Location location;
-
     Button btnChangeToImageTests;
-
     LinkedHashMap<Location, Boolean> checkedCoords;
 
+
+
+    //================================================================================
+    // FUNCTIONS
+    //================================================================================
+    static {
+        if (!OpenCVLoader.initDebug())
+            Log.d("ERROR", "Unable to load OpenCV");
+        else
+            Log.d("SUCCESS", "OpenCV loaded");
+    }
+
+
+    //================================================================================
+    // GENERAL functions
+    //================================================================================
+
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    public void onCreate(Bundle savedInstanceState) {
+
+        Log.i(TAG, "called onCreate");
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+
+        //================================================================================
+        // Image recognition declarations
+        //================================================================================
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setContentView(R.layout.activity_image_comparison);
+
+        if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_PERMISSION);
+        }
+
+        mOpenCvCameraView = (CameraBridgeViewBase) findViewById(R.id.camera_view);
+        mOpenCvCameraView.setVisibility(SurfaceView.VISIBLE);
+        mOpenCvCameraView.setCvCameraViewListener(this);
+
+        tvName = (TextView) findViewById(R.id.text1);
+        txvNumberOfMatches = (TextView) findViewById(R.id.txv_numberofmatches);
+
+        firstFrame = true;
+        chosenPicture = null;
+
+
+
+
+        //================================================================================
+        // Map declarations
+        //================================================================================
 
         checkedCoords = new LinkedHashMap<>();
 
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
+                .findFragmentById(R.id.mapa);
         mapFragment.getMapAsync(this);
 
-        btnChangeToImageTests = (Button) findViewById(R.id.btn_changeto_imagetests);
-        btnChangeToImageTests.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent myIntent = new Intent(MainActivity.this, ActivityImageComparison.class);
-                MainActivity.this.startActivity(myIntent);
-            }
-        });
 
         mResultReceiver = new AddressResultReceiver(null);
         mLocationRequest = new LocationRequest();
         buildGoogleApiClient();
     }
+
+    public void addMarker(final BuildingPicture chosenPicture){
+        Handler mHandler = new Handler(getMainLooper());
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                MarkerOptions markerOptions = new MarkerOptions();
+                markerOptions.position(chosenPicture.getLatLng());
+                markerOptions.title("Local atual");
+                gMap.clear();
+                gMap.animateCamera(CameraUpdateFactory.newLatLng(chosenPicture.getLatLng()));
+                gMap.addMarker(markerOptions);
+            }
+        });
+
+    }
+
+
+
+    //================================================================================
+    // Image recognition functions
+    //================================================================================
+
+    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS: {
+                    Log.i(TAG, "OpenCV loaded successfully");
+                    mOpenCvCameraView.enableView();
+                    try {
+                        initializeOpenCVDependencies();
+                    } catch (IOException e) {
+                        Log.d("TAG", "MAIN INITIAL ERROR");
+                        e.printStackTrace();
+                    }
+                }
+                break;
+                default: {
+                    super.onManagerConnected(status);
+                }
+                break;
+            }
+        }
+    };
+
+    private void initializeOpenCVDependencies() throws IOException {
+        mOpenCvCameraView.enableView();
+        cameraActive = true;
+
+        AssetManager assetManager = getAssets();
+        String[] files = assetManager.list("");
+        List<String> it = new LinkedList<String>(Arrays.asList(files));
+
+        buildingPicturesList = new ArrayList<>();
+
+        /*
+            LOOP THROUGH ALL THE PICTURES
+            APPLY COLOR CORRECTION AND FILTERS TO EACH PICTURE
+            GET KEYPOINTS AND DECRYPTORS OF EVERY PICTURE
+            ADD PICTURE TO LIST    }
+            }, 1000);
+        */
+        for(int i = 0; i < it.size(); i++) {
+            // buildingPicture IS THE PICTURE THAT IS BEING USED
+            // FROM THE CLASS BuildingPicture
+            if (it.get(i).equals("images") || it.get(i).equals("webkit") || it.get(i).equals("sounds")) {
+                Log.d(TAG, "--------");
+            } else {
+                String ficheiroSemExtensao = it.get(i).split("\\.")[0] + "." + it.get(i).split("\\.")[1] + "." + it.get(i).split("\\.")[2];
+                String pictureLat = it.get(i).split(",")[0];
+                String pictureLon = it.get(i).split(",")[1].split("\\.")[0] + "." + it.get(i).split(",")[1].split("\\.")[1];
+
+                InputStream istr = assetManager.open(it.get(i).toString());
+                Bitmap bitmap = BitmapFactory.decodeStream(istr);
+
+                BuildingPicture buildingPicture = new BuildingPicture(bitmap);
+
+
+                // SET PICTURE FILENAME
+                buildingPicture.setFilename(it.get(i).toString());
+
+                buildingPicture.setDetector(FeatureDetector.create(FeatureDetector.ORB));
+                buildingPicture.setDescriptor(DescriptorExtractor.create(DescriptorExtractor.ORB));
+                buildingPicture.setMatcher(DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING));
+
+                buildingPicture.setImage(new Mat());
+
+                ColorMatrix colorMatrix = new ColorMatrix(new float[]
+                        {
+                                0, 0, 0, 1, 0,
+                                1, 0, 0, 0, 1,
+                                0, 0, 0, 0, 1,
+                                0, 0, 1, 0, 0
+                        });
+
+                Bitmap ret = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
+                Canvas canvas = new Canvas(ret);
+
+                Paint paint = new Paint();
+                paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
+                canvas.drawBitmap(buildingPicture.getBitmap(), 0, 0, paint);
+
+                Utils.bitmapToMat(ret, buildingPicture.getImage());
+
+                // CHANGE TO BLACK AND WHITE
+                Imgproc.cvtColor(buildingPicture.getImage(), buildingPicture.getImage(), Imgproc.COLOR_RGB2GRAY);
+                buildingPicture.getImage().convertTo(buildingPicture.getImage(), 0); //converting the image to match with the type of the cameras image
+
+                buildingPicture.setDescriptors(new Mat());
+                // GET KEYPOINTS FROM PICTURE
+                buildingPicture.setKeypoint(new MatOfKeyPoint());
+                buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
+                buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
+
+                // SET PICTURE LAT AND LON FROM FILENAME
+                buildingPicture.setLatLng(new LatLng(Double.valueOf(pictureLat), Double.valueOf(pictureLon)));
+
+
+                Log.d(TAG, "initializeOpenCVDependencies: TESTE " + buildingPicture.getLatLng() + " " + buildingPicturesList.size());
+                //Log.d(TAG, "initializeOpenCVDependencies: " + "TESTE TOTAL--> " + buildingPicturesList.get(i));
+
+                buildingPicturesList.add(buildingPicture);
+            }
+        }
+    }
+
+
+    public MainActivity() {
+
+        Log.i(TAG, "Instantiated new " + this.getClass());
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (mOpenCvCameraView != null)
+            mOpenCvCameraView.disableView();
+
+        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleAPIClient, this);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
+        } else {
+            Log.d(TAG, "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+    }
+
+    public void onDestroy() {
+        super.onDestroy();
+        if (mOpenCvCameraView != null)
+            mOpenCvCameraView.disableView();
+    }
+
+    public void onCameraViewStarted(int width, int height) {
+        w = width;
+        h = height;
+    }
+
+    public void onCameraViewStopped() {
+    }
+
+    public Mat recognize(Mat aInputFrame) {
+
+        /*
+            LOOP AGAIN THROUGH ALL PICTURES
+            GET KEYPOINTS FROM CURRENT CAMERA FRAME
+            CHECK WHICH PICTURE HAS THE MOST POINTS IN COMMON
+            USE THAT AS chosenPicture
+         */
+        for(int j = 0; j < buildingPicturesList.size(); j++) {
+
+            BuildingPicture currentPicture = buildingPicturesList.get(j);
+
+            try {
+                Imgproc.cvtColor(aInputFrame, aInputFrame, Imgproc.COLOR_RGB2GRAY);
+            } catch (Exception e){
+                Log.i("TAG", "ERRO " + e.getMessage());
+            }
+            descriptors2 = new Mat();
+            keypoints2 = new MatOfKeyPoint();
+            currentPicture.getDetector().detect(aInputFrame, keypoints2);
+            currentPicture.getDescriptor().compute(aInputFrame, keypoints2, descriptors2);
+
+            // Matching
+            MatOfDMatch matches = new MatOfDMatch();
+            if (currentPicture.getImage().type() == aInputFrame.type()) {
+                try {
+                    currentPicture.getMatcher().match(currentPicture.getDescriptors(), descriptors2, matches);
+                } catch (Exception e) {
+                    Log.d("TAG", "[NO DETECTABLE FRAMES]\n");
+                }
+            } else {
+                return aInputFrame;
+            }
+            List<DMatch> matchesList = matches.toList();
+
+            Double max_dist = 0.0;
+            Double min_dist = 20.0;
+
+            for (int i = 0; i < matchesList.size(); i++) {
+                Double dist = (double) matchesList.get(i).distance;
+                if (dist < min_dist)
+                    min_dist = dist;
+                if (dist > max_dist)
+                    max_dist = dist;
+            }
+
+            // THIS IS THE NUMBER OF POINTS IN COMMON DETECTED
+            final LinkedList<DMatch> good_matches = new LinkedList<DMatch>();
+
+            for (int i = 0; i < matchesList.size(); i++) {
+                if (matchesList.get(i).distance <= (1.5 * min_dist))
+                    good_matches.addLast(matchesList.get(i));
+            }
+
+            currentPicture.setGood_matches(good_matches);
+
+            if (good_matches.size() > 6) {
+                // DISABLE CAMERA IF IT HAS ENOUGH MATCHES
+                // Log.d("TAG", "CAMERA STOPPED");
+
+                // CHANGE TEXT TO SHOW NUMBER OF MATCHES
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        // UPDATE TEXT TO SHOW POINTS IN COMMON
+                        txvNumberOfMatches.setText(good_matches.size() + " pts");
+                    }
+                });
+
+                // DISABLE CAMERA
+                cameraActive = false;
+            }
+        }
+
+        // ON THE FIRST FRAME
+        // THE FIRST PICTURE ON THE LIST IS THE DEFAULT
+        // THIS IS RUN ONLY ONE TIME
+        if(firstFrame) {
+            Log.d(TAG, "recognize: " + "TESTE " + buildingPicturesList.size());
+            chosenPicture = buildingPicturesList.get(0);
+        }
+
+        // THIS VERIFIES THE NUMBER OF GOOD MATCHES ON EACH PICTURE
+        for(int i = 0; i < buildingPicturesList.size(); i++){
+            if(chosenPicture.getGood_matches().size() < buildingPicturesList.get(i).getGood_matches().size()){
+                chosenPicture = buildingPicturesList.get(i);
+                Log.d(TAG, "recognize: " + "MUDOU DE FOTO " + chosenPicture);
+                addMarker(chosenPicture);
+            }
+        }
+
+        MatOfDMatch goodMatches = new MatOfDMatch();
+        goodMatches.fromList(chosenPicture.getGood_matches());
+        Mat outputImg = new Mat();
+        MatOfByte drawnMatches = new MatOfByte();
+        if (aInputFrame.empty() || aInputFrame.cols() < 1 || aInputFrame.rows() < 1) {
+            return aInputFrame;
+        }
+
+        //Imgproc.Canny(outputImg, outputImg, 70, 100);
+
+        Features2d.drawMatches(chosenPicture.getImage(), chosenPicture.getKeypoint(), aInputFrame, keypoints2, goodMatches, outputImg, RED, GREEN, drawnMatches, Features2d.NOT_DRAW_SINGLE_POINTS);
+        Imgproc.resize(outputImg, outputImg, aInputFrame.size());
+
+        firstFrame = false;
+
+        return outputImg;
+    }
+
+    public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+        return recognize(inputFrame.rgba());
+    }
+
+
+
+
+
+
+
+    //================================================================================
+    // MAPS functions
+    //================================================================================
+
 
     @Override
     public void onMapReady(GoogleMap googleMap) {
@@ -186,11 +565,7 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
     public void onConnected(Bundle connectionHint){
         startLocationUpdates();
     }
-    @Override
-    protected void onPause(){
-        super.onPause();
-        LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleAPIClient, this);
-    }
+
     @Override
     public void onConnectionSuspended(int i) {
 
@@ -229,7 +604,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     }
 
-
     // CLASS ADDRESSRESULTRECEIVER
     class AddressResultReceiver extends ResultReceiver {
         public AddressResultReceiver(Handler handler){
@@ -265,7 +639,6 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         }
     }
 
-
     public void focusMapa(LatLng latlng){
         final CameraPosition cameraPosition = new CameraPosition.Builder()
                 .target(latlng)
@@ -281,13 +654,11 @@ public class MainActivity extends AppCompatActivity implements OnMapReadyCallbac
         });
     }
 
-
     protected void startIntentService(Location location){
         Intent intent = new Intent(this, FetchAddressIntentService.class);
         intent.putExtra(Constants.RECEIVER, mResultReceiver);
         intent.putExtra(Constants.LOCATION_DATA_EXTRA, location);
         startService(intent);
     }
-
 
 }

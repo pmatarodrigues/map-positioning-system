@@ -1,36 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    xmlns:opencv="http://schemas.android.com/apk/res-auto"
     tools:context=".MainActivity">
 
-    <RelativeLayout
-        android:id="@+id/map_layout"
+    <org.opencv.android.JavaCameraView
+        android:id="@+id/camera_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        >
-
-        <fragment
-            xmlns:android="http://schemas.android.com/apk/res/android"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:id="@+id/map"
-            android:name="com.google.android.gms.maps.SupportMapFragment" />
-
-        <Button
-            android:layout_alignParentBottom="true"
-            android:id="@+id/btn_changeto_imagetests"
-            android:layout_width="match_parent"
-            android:layout_height="100dp"
-            android:background="@color/colorAccent"
-            android:text="Image_Tests"
-            />
-
-    </RelativeLayout>
+        android:layout_below="@+id/text1"
+        android:screenOrientation="portrait"
+        android:visibility="visible"
+        opencv:camera_id="back"
+        opencv:show_fps="false" />
 
 
-</LinearLayout>
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:id="@+id/text1"
+        android:text="Projeto4"
+        android:textStyle="bold"
+        android:textColor="@color/colorAccent"
+        android:textSize="60sp"
+        />
+
+    <TextView
+        android:id="@+id/txv_numberofmatches"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Number of matches"
+        android:textSize="20sp"
+        android:layout_below="@id/text1"
+        android:textAlignment="center"
+        android:textColor="@color/colorPrimary"
+        android:background="@android:color/background_dark"
+        />
+
+
+    <fragment
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/mapa"
+        android:name="com.google.android.gms.maps.SupportMapFragment" />
+
+
+</RelativeLayout>

@@ -242,7 +242,7 @@ public class ActivityImageComparison extends AppCompatActivity implements Camera
             GET KEYPOINTS AND DECRYPTORS OF EVERY PICTURE
             ADD PICTURE TO LIST
         */
-        for(int i = 9; i <= 12; i++){
+        for(int i = 1; i <= 4; i++){
 
             // buildingPicture IS THE PICTURE THAT IS BEING USED
             // FROM THE CLASS BuildingPicture
@@ -287,17 +287,17 @@ public class ActivityImageComparison extends AppCompatActivity implements Camera
             buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
             buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
 
-            if(buildingPicture.getFilename().equals("9.png")){
+            if(buildingPicture.getFilename().equals("1.png")){
                 buildingPicture.setLatLng(new LatLng(41.6970909,-8.8402198));
             }
 
-            if(buildingPicture.getFilename().equals("10.png")){
+            if(buildingPicture.getFilename().equals("2.png")){
                 buildingPicture.setLatLng(new LatLng(41.6967705,-8.8394581));
             }
-            if(buildingPicture.getFilename().equals("11.png")){
+            if(buildingPicture.getFilename().equals("3.png")){
                 buildingPicture.setLatLng(new LatLng(41.6967785,-8.8404076));
             }
-            if(buildingPicture.getFilename().equals("12.png")){
+            if(buildingPicture.getFilename().equals("4.png")){
                 buildingPicture.setLatLng(new LatLng(41.6973152,-8.8394366));
             }
 
