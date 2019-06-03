@@ -41,13 +41,18 @@
         android:background="@android:color/background_dark"
         />
 
-
     <fragment
         xmlns:android="http://schemas.android.com/apk/res/android"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:id="@+id/mapa"
         android:name="com.google.android.gms.maps.SupportMapFragment" />
+
+
+    <ImageView
+        android:id="@+id/img_selected"
+        android:layout_width="100dp"
+        android:layout_height="200dp" />
 
 
 </RelativeLayout>

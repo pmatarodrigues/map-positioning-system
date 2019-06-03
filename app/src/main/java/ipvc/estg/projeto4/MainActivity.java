@@ -86,6 +86,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     private static final String TAG = "OCVSample::Activity";
     private static final int REQUEST_PERMISSION = 100;
     private int w, h;
+
+    AssetManager assetManager;
+    List<String> it;
     //================================================================================
     // Image recognition variables
     //================================================================================
@@ -98,6 +101,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     TextView tvName;
     TextView txvNumberOfMatches;
     ImageView imgBitmaptests;
+    ImageView imgSelected;
 
     Scalar RED = new Scalar(255, 0, 0);
     Scalar GREEN = new Scalar(0, 255, 0);
@@ -121,7 +125,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     private MainActivity.AddressResultReceiver mResultReceiver;
     Location location;
     Button btnChangeToImageTests;
+
     LinkedHashMap<Location, Boolean> checkedCoords;
+    LatLng userCoords;
 
 
 
@@ -150,7 +156,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         // Image recognition declarations
         //================================================================================
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setContentView(R.layout.activity_image_comparison);
+        setContentView(R.layout.activity_main);
 
         if(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, REQUEST_PERMISSION);
@@ -162,10 +168,11 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         tvName = (TextView) findViewById(R.id.text1);
         txvNumberOfMatches = (TextView) findViewById(R.id.txv_numberofmatches);
+        imgSelected = (ImageView) findViewById(R.id.img_selected);
 
         firstFrame = true;
         chosenPicture = null;
-
+        userCoords = null;
 
 
 
@@ -214,6 +221,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
                 case LoaderCallbackInterface.SUCCESS: {
                     Log.i(TAG, "OpenCV loaded successfully");
                     mOpenCvCameraView.enableView();
+                    //Log.d(TAG, "onManagerConnected: openCVLoaded");
                     try {
                         initializeOpenCVDependencies();
                     } catch (IOException e) {
@@ -234,11 +242,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         mOpenCvCameraView.enableView();
         cameraActive = true;
 
-        AssetManager assetManager = getAssets();
+        assetManager = getAssets();
         String[] files = assetManager.list("");
-        List<String> it = new LinkedList<String>(Arrays.asList(files));
-
-        buildingPicturesList = new ArrayList<>();
+        it = new LinkedList<String>(Arrays.asList(files));
 
         /*
             LOOP THROUGH ALL THE PICTURES
@@ -247,70 +253,80 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             ADD PICTURE TO LIST    }
             }, 1000);
         */
-        for(int i = 0; i < it.size(); i++) {
-            // buildingPicture IS THE PICTURE THAT IS BEING USED
-            // FROM THE CLASS BuildingPicture
-            if (it.get(i).equals("images") || it.get(i).equals("webkit") || it.get(i).equals("sounds")) {
-                Log.d(TAG, "--------");
-            } else {
-                String ficheiroSemExtensao = it.get(i).split("\\.")[0] + "." + it.get(i).split("\\.")[1] + "." + it.get(i).split("\\.")[2];
-                String pictureLat = it.get(i).split(",")[0];
-                String pictureLon = it.get(i).split(",")[1].split("\\.")[0] + "." + it.get(i).split(",")[1].split("\\.")[1];
-
-                InputStream istr = assetManager.open(it.get(i).toString());
-                Bitmap bitmap = BitmapFactory.decodeStream(istr);
-
-                BuildingPicture buildingPicture = new BuildingPicture(bitmap);
-
-
-                // SET PICTURE FILENAME
-                buildingPicture.setFilename(it.get(i).toString());
-
-                buildingPicture.setDetector(FeatureDetector.create(FeatureDetector.ORB));
-                buildingPicture.setDescriptor(DescriptorExtractor.create(DescriptorExtractor.ORB));
-                buildingPicture.setMatcher(DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING));
-
-                buildingPicture.setImage(new Mat());
-
-                ColorMatrix colorMatrix = new ColorMatrix(new float[]
-                        {
-                                0, 0, 0, 1, 0,
-                                1, 0, 0, 0, 1,
-                                0, 0, 0, 0, 1,
-                                0, 0, 1, 0, 0
-                        });
-
-                Bitmap ret = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
-                Canvas canvas = new Canvas(ret);
-
-                Paint paint = new Paint();
-                paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
-                canvas.drawBitmap(buildingPicture.getBitmap(), 0, 0, paint);
-
-                Utils.bitmapToMat(ret, buildingPicture.getImage());
-
-                // CHANGE TO BLACK AND WHITE
-                Imgproc.cvtColor(buildingPicture.getImage(), buildingPicture.getImage(), Imgproc.COLOR_RGB2GRAY);
-                buildingPicture.getImage().convertTo(buildingPicture.getImage(), 0); //converting the image to match with the type of the cameras image
-
-                buildingPicture.setDescriptors(new Mat());
-                // GET KEYPOINTS FROM PICTURE
-                buildingPicture.setKeypoint(new MatOfKeyPoint());
-                buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
-                buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
-
-                // SET PICTURE LAT AND LON FROM FILENAME
-                buildingPicture.setLatLng(new LatLng(Double.valueOf(pictureLat), Double.valueOf(pictureLon)));
-
-
-                Log.d(TAG, "initializeOpenCVDependencies: TESTE " + buildingPicture.getLatLng() + " " + buildingPicturesList.size());
-                //Log.d(TAG, "initializeOpenCVDependencies: " + "TESTE TOTAL--> " + buildingPicturesList.get(i));
-
-                buildingPicturesList.add(buildingPicture);
+        if(userCoords == null){
+            addPictureToList(it.get(0));
+        }
+        /*
+        else {
+            for (int i = 0; i < it.size(); i++) {
+                addPictureToList(it.get(i));
             }
         }
+        */
     }
 
+    public void addPictureToList(String pictureName) throws IOException {
+        // buildingPicture IS THE PICTURE THAT IS BEING USED
+        // FROM THE CLASS BuildingPicture
+        if (pictureName.equals("images") || pictureName.equals("webkit") || pictureName.equals("sounds")) {
+            Log.d(TAG, "--------");
+        } else {
+            String ficheiroSemExtensao = pictureName.split("\\.")[0] + "." + pictureName.split("\\.")[1] + "." + pictureName.split("\\.")[2];
+            String pictureLat = pictureName.split(",")[0];
+            String pictureLon = pictureName.split(",")[1].split("\\.")[0] + "." + pictureName.split(",")[1].split("\\.")[1];
+
+            InputStream istr = assetManager.open(pictureName.toString());
+            Bitmap bitmap = BitmapFactory.decodeStream(istr);
+
+            BuildingPicture buildingPicture = new BuildingPicture(bitmap);
+
+
+            // SET PICTURE FILENAME
+            buildingPicture.setFilename(pictureName.toString());
+
+            buildingPicture.setDetector(FeatureDetector.create(FeatureDetector.ORB));
+            buildingPicture.setDescriptor(DescriptorExtractor.create(DescriptorExtractor.ORB));
+            buildingPicture.setMatcher(DescriptorMatcher.create(DescriptorMatcher.BRUTEFORCE_HAMMING));
+
+            buildingPicture.setImage(new Mat());
+
+            ColorMatrix colorMatrix = new ColorMatrix(new float[]
+                    {
+                            0, 0, 0, 1, 0,
+                            1, 0, 0, 0, 1,
+                            0, 0, 0, 0, 1,
+                            0, 0, 1, 0, 0
+                    });
+
+            Bitmap ret = Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), bitmap.getConfig());
+            Canvas canvas = new Canvas(ret);
+
+            Paint paint = new Paint();
+            paint.setColorFilter(new ColorMatrixColorFilter(colorMatrix));
+            canvas.drawBitmap(buildingPicture.getBitmap(), 0, 0, paint);
+
+            Utils.bitmapToMat(ret, buildingPicture.getImage());
+
+            // CHANGE TO BLACK AND WHITE
+            Imgproc.cvtColor(buildingPicture.getImage(), buildingPicture.getImage(), Imgproc.COLOR_RGB2GRAY);
+            buildingPicture.getImage().convertTo(buildingPicture.getImage(), 0); //converting the image to match with the type of the cameras image
+
+            buildingPicture.setDescriptors(new Mat());
+            // GET KEYPOINTS FROM PICTURE
+            buildingPicture.setKeypoint(new MatOfKeyPoint());
+            buildingPicture.getDetector().detect(buildingPicture.getImage(), buildingPicture.getKeypoint());
+            buildingPicture.getDescriptor().compute(buildingPicture.getImage(), buildingPicture.getKeypoint(), buildingPicture.getDescriptors());
+
+            // SET PICTURE LAT AND LON FROM FILENAME
+            buildingPicture.setLatLng(new LatLng(Double.valueOf(pictureLat), Double.valueOf(pictureLon)));
+
+
+            Log.d(TAG, "initializeOpenCVDependencies: TESTE " + buildingPicture.getLatLng() + " " + buildingPicturesList.size());
+            //Log.d(TAG, "initializeOpenCVDependencies: " + "TESTE TOTAL--> " + buildingPicturesList.get(i));
+
+            buildingPicturesList.add(buildingPicture);
+        }
+    }
 
     public MainActivity() {
 
@@ -329,6 +345,9 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     @Override
     public void onResume() {
         super.onResume();
+        if(buildingPicturesList == null) {
+            buildingPicturesList = new ArrayList<>();
+        }
         if (!OpenCVLoader.initDebug()) {
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
@@ -439,6 +458,12 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
             if(chosenPicture.getGood_matches().size() < buildingPicturesList.get(i).getGood_matches().size()){
                 chosenPicture = buildingPicturesList.get(i);
                 Log.d(TAG, "recognize: " + "MUDOU DE FOTO " + chosenPicture);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        imgSelected.setImageBitmap(chosenPicture.getBitmap());
+                    }
+                });
                 addMarker(chosenPicture);
             }
         }
@@ -458,6 +483,7 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         firstFrame = false;
 
+        userCoords = chosenPicture.getLatLng();
         return outputImg;
     }
 
@@ -543,8 +569,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     }
 
     public void createLocationRequest(){
-        mLocationRequest.setInterval(1000);
-        mLocationRequest.setFastestInterval(1000);
+        mLocationRequest.setInterval(3000);
+        mLocationRequest.setFastestInterval(2000);
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
     }
 
@@ -597,6 +623,15 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
     @Override
     public void onLocationChanged(Location location) {
+        Log.d(TAG, "onReceiveResult: LOCATION CHANGED");
+        buildingPicturesList.clear();
+        for (int i = 0; i < it.size(); i++) {
+            try {
+                addPictureToList(it.get(i));
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     @Override
@@ -632,7 +667,6 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
                         resultData.getDouble(Constants.LATITUDE),
                         resultData.getDouble(Constants.LONGITUDE)
                 );
-
 
                 focusMapa(latLng);
             }
