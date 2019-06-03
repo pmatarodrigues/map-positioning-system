@@ -15,6 +15,7 @@ import android.graphics.Paint;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationManager;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -478,8 +479,12 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
 
         //Imgproc.Canny(outputImg, outputImg, 70, 100);
 
-        Features2d.drawMatches(chosenPicture.getImage(), chosenPicture.getKeypoint(), aInputFrame, keypoints2, goodMatches, outputImg, RED, GREEN, drawnMatches, Features2d.NOT_DRAW_SINGLE_POINTS);
-        Imgproc.resize(outputImg, outputImg, aInputFrame.size());
+        try {
+            Features2d.drawMatches(chosenPicture.getImage(), chosenPicture.getKeypoint(), aInputFrame, keypoints2, goodMatches, outputImg, RED, GREEN, drawnMatches, Features2d.NOT_DRAW_SINGLE_POINTS);
+            Imgproc.resize(outputImg, outputImg, aInputFrame.size());
+        }catch (Exception e){
+            Log.d(TAG, "recognize: " + e.getMessage());
+        }
 
         firstFrame = false;
 
@@ -569,8 +574,8 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     }
 
     public void createLocationRequest(){
-        mLocationRequest.setInterval(3000);
-        mLocationRequest.setFastestInterval(2000);
+        mLocationRequest.setInterval(15000);
+        mLocationRequest.setFastestInterval(11000);
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
     }
 
@@ -622,16 +627,37 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
     }
 
     @Override
-    public void onLocationChanged(Location location) {
+    public void onLocationChanged(final Location location) {
         Log.d(TAG, "onReceiveResult: LOCATION CHANGED");
-        buildingPicturesList.clear();
-        for (int i = 0; i < it.size(); i++) {
-            try {
-                addPictureToList(it.get(i));
-            } catch (IOException e) {
-                e.printStackTrace();
+        buildingPicturesList.subList(1, buildingPicturesList.size()).clear();
+
+        // RUN THE APP IN BACKGROUND
+        AsyncTask.execute(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < it.size(); i++) {
+                    try {
+                        if (it.get(i).equals("images") || it.get(i).equals("webkit") || it.get(i).equals("sounds")) {
+                            Log.d(TAG, "--------");
+                        }
+                        else{
+                            String pictureLat = it.get(i).split(",")[0];
+                            String pictureLon = it.get(i).split(",")[1].split("\\.")[0] + "." + it.get(i).split(",")[1].split("\\.")[1];
+                            double distanceCoords = calculateDistanceCoords(location.getLatitude(), Double.valueOf(pictureLat), location.getLongitude(), Double.valueOf(pictureLon), 0, 0);
+                            // ADD ONLY IMAGES FROM LESS THAN 20 METERS FROM CURRENT LOCATION
+                            if(distanceCoords < 20){
+                                Log.d(TAG, "onLocationChanged: LOCATION / DISTANCE " + it.get(i) + " / " + distanceCoords);
+                                addPictureToList(it.get(i));
+                            }
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                // SET VALUE OF ELEMENT 0 TO BE THE LAST ELEMENT
+                buildingPicturesList.set(0, buildingPicturesList.get(buildingPicturesList.size() - 1));
             }
-        }
+        });
     }
 
     @Override
@@ -693,6 +719,27 @@ public class MainActivity extends AppCompatActivity implements CameraBridgeViewB
         intent.putExtra(Constants.RECEIVER, mResultReceiver);
         intent.putExtra(Constants.LOCATION_DATA_EXTRA, location);
         startService(intent);
+    }
+
+
+    public static double calculateDistanceCoords(double latUser, double latPicture, double lonUser,
+                                  double lonPicture, double el1, double el2) {
+
+        final int R = 6371; // Radius of the earth
+
+        double latDistance = Math.toRadians(latPicture - latUser);
+        double lonDistance = Math.toRadians(lonPicture - lonUser);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(latUser)) * Math.cos(Math.toRadians(latPicture))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        double distance = R * c * 1000; // convert to meters
+
+        double height = el1 - el2;
+
+        distance = Math.pow(distance, 2) + Math.pow(height, 2);
+
+        return Math.sqrt(distance);
     }
 
 }
